@@ -128,7 +128,6 @@ public partial class MainWindow : Window
         if (e.Data.GetData(DataFormats.FileDrop) is string[] { Length: > 0 } files)
         {
             InputBox.Text = files[0];
-            // Dropping an .aes file most likely means the user wants to decrypt it.
             if (files[0].EndsWith(Extension, StringComparison.OrdinalIgnoreCase)) DecryptRadio.IsChecked = true;
         }
     }

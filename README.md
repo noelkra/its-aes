@@ -29,5 +29,5 @@ A wrong key and a modified file are indistinguishable by design; both report an 
 
 ## Layout
 
-- `src/AesFileCrypt.Core` – file format and cipher logic (no UI dependency)
+- `src/AesFileCrypt.Core` – file format and cipher logic
 - `src/AesFileCrypt.App` – WPF front end
