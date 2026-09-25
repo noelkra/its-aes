@@ -1,0 +1,95 @@
+<Window x:Class="AesFileCrypt.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        Title="AES File Encryptor" Width="620" Height="760" MinWidth="520" MinHeight="700"
+        WindowStartupLocation="CenterScreen"
+        AllowDrop="True" Drop="Window_Drop"
+        Background="{DynamicResource MaterialDesign.Brush.Background}"
+        Foreground="{DynamicResource MaterialDesign.Brush.Foreground}"
+        TextElement.FontSize="14"
+        FontFamily="{materialDesign:MaterialDesignFont}">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="24">
+
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                <materialDesign:PackIcon Kind="ShieldLockOutline" Width="36" Height="36"
+                                         Foreground="{DynamicResource MaterialDesign.Brush.Primary}"
+                                         VerticalAlignment="Center" />
+                <TextBlock Text="AES File Encryptor" Margin="12,0,0,0" VerticalAlignment="Center"
+                           Style="{StaticResource MaterialDesignHeadline5TextBlock}" />
+            </StackPanel>
+
+            <materialDesign:Card Padding="20" UniformCornerRadius="8">
+                <StackPanel>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,8">
+                        <RadioButton x:Name="EncryptRadio" Content="Encrypt" IsChecked="True" Margin="0,0,8,0"
+                                     Style="{StaticResource MaterialDesignChoiceChipPrimaryOutlineRadioButton}"
+                                     Checked="Operation_Changed" />
+                        <RadioButton x:Name="DecryptRadio" Content="Decrypt"
+                                     Style="{StaticResource MaterialDesignChoiceChipPrimaryOutlineRadioButton}"
+                                     Checked="Operation_Changed" />
+                    </StackPanel>
+
+                    <Grid Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="InputBox" materialDesign:HintAssist.Hint="Input file (or drop a file here)"
+                                 Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                 TextChanged="InputBox_TextChanged" />
+                        <Button Grid.Column="1" Content="Browse" Margin="8,0,0,0" VerticalAlignment="Center"
+                                Style="{StaticResource MaterialDesignOutlinedButton}" Click="BrowseInput_Click" />
+                    </Grid>
+
+                    <Grid Margin="0,16,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="OutputBox" materialDesign:HintAssist.Hint="Output file"
+                                 Style="{StaticResource MaterialDesignOutlinedTextBox}" />
+                        <Button Grid.Column="1" Content="Browse" Margin="8,0,0,0" VerticalAlignment="Center"
+                                Style="{StaticResource MaterialDesignOutlinedButton}" Click="BrowseOutput_Click" />
+                    </Grid>
+
+                    <PasswordBox x:Name="KeyBox" Margin="0,16,0,0"
+                                 materialDesign:HintAssist.Hint="Key (passphrase)"
+                                 Style="{StaticResource MaterialDesignOutlinedRevealPasswordBox}" />
+
+                    <StackPanel x:Name="EncryptOptions" Margin="0,16,0,0">
+                        <PasswordBox x:Name="ConfirmKeyBox" Margin="0,0,0,16"
+                                     materialDesign:HintAssist.Hint="Repeat key"
+                                     Style="{StaticResource MaterialDesignOutlinedRevealPasswordBox}" />
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <ComboBox x:Name="ModeCombo" DisplayMemberPath="Name"
+                                      materialDesign:HintAssist.Hint="AES mode"
+                                      Style="{StaticResource MaterialDesignOutlinedComboBox}"
+                                      SelectionChanged="ModeCombo_SelectionChanged" />
+                            <ComboBox x:Name="KeySizeCombo" Grid.Column="2"
+                                      materialDesign:HintAssist.Hint="Key size"
+                                      Style="{StaticResource MaterialDesignOutlinedComboBox}" />
+                        </Grid>
+                    </StackPanel>
+
+                    <TextBlock x:Name="InfoText" Margin="0,16,0,0" TextWrapping="Wrap" Opacity="0.75" />
+
+                    <ProgressBar x:Name="Progress" Margin="0,20,0,0" Height="6" Minimum="0" Maximum="1" />
+
+                    <Button x:Name="RunButton" Margin="0,16,0,0" Height="44" Content="ENCRYPT"
+                            Style="{StaticResource MaterialDesignRaisedButton}" Click="RunButton_Click" />
+
+                    <TextBlock x:Name="StatusText" Margin="0,16,0,0" TextWrapping="Wrap" FontWeight="Medium" />
+                </StackPanel>
+            </materialDesign:Card>
+
+        </StackPanel>
+    </ScrollViewer>
+</Window>
