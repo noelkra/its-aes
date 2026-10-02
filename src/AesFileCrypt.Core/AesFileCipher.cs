@@ -25,12 +25,19 @@ public static class AesFileCipher
     }
 
     public static void Encrypt(
-        string inputPath, string outputPath, string password, AesMode mode, int keySizeBits,
-        IProgress<double>? progress = null, CancellationToken cancellationToken = default)
+        string inputPath,
+        string outputPath,
+        string password,
+        AesMode mode,
+        int keySizeBits,
+        IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default)
     {
+        // only the three real AES sizes allowed
         if (keySizeBits is not (128 or 192 or 256))
             throw new ArgumentOutOfRangeException(nameof(keySizeBits), "AES key size must be 128, 192 or 256 bits.");
 
+        // fresh random salt + nonce every time, so same file + same password never looks the same
         var header = new FileHeader(
             mode,
             keySizeBits / 8,
@@ -39,32 +46,41 @@ public static class AesFileCipher
             RandomNumberGenerator.GetBytes(AesModeInfo.NonceLength(mode)));
         var headerBytes = header.ToBytes();
 
+        // write to a temp file first, swap in at the end
         WriteAtomically(inputPath, outputPath, (input, output) =>
         {
+            // password -> two keys (AES + MAC)
             var (encKey, macKey) = DeriveKeys(password, header);
             try
             {
+                // cipher for the chosen mode
                 var cipher = CreateCipher(mode, forEncryption: true, encKey, header.Nonce, headerBytes);
+                // HMAC only for non-AEAD modes, GCM/EAX/OCB have their own tag
                 using var hmac = AesModeInfo.IsAuthenticated(mode)
                     ? null
                     : IncrementalHash.CreateHMAC(HashAlgorithmName.SHA256, macKey);
 
+                // header goes first (and into the HMAC)
                 output.Write(headerBytes);
                 hmac?.AppendData(headerBytes);
 
+                // every encrypted chunk: write it out + feed the HMAC
                 void Sink(byte[] buf, int len)
                 {
                     output.Write(buf, 0, len);
                     hmac?.AppendData(buf, 0, len);
                 }
 
+                // encrypt chunk by chunk, no need to load the whole file
                 Pump(cipher, input, input.Length, Sink, 0, 1, progress, cancellationToken);
 
+                // MAC goes at the very end
                 if (hmac is not null)
                     output.Write(hmac.GetHashAndReset());
             }
             finally
             {
+                // wipe keys from memory
                 CryptographicOperations.ZeroMemory(encKey);
                 CryptographicOperations.ZeroMemory(macKey);
             }
@@ -72,8 +88,11 @@ public static class AesFileCipher
     }
 
     public static void Decrypt(
-        string inputPath, string outputPath, string password,
-        IProgress<double>? progress = null, CancellationToken cancellationToken = default)
+        string inputPath,
+        string outputPath,
+        string password,
+        IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         WriteAtomically(inputPath, outputPath, (input, output) =>
         {
@@ -137,10 +156,18 @@ public static class AesFileCipher
         });
     }
 
-    /// <summary>Feeds <paramref name="length"/> bytes from <paramref name="input"/> through the cipher.</summary>
+    /// <summary>
+    /// Feeds <paramref name="length"/> bytes from <paramref name="input"/> through the cipher.
+    /// </summary>
     private static void Pump(
-        IBufferedCipher cipher, Stream input, long length, Action<byte[], int> sink,
-        double progressStart, double progressSpan, IProgress<double>? progress, CancellationToken ct)
+        IBufferedCipher cipher,
+        Stream input,
+        long length,
+        Action<byte[], int> sink,
+        double progressStart,
+        double progressSpan,
+        IProgress<double>? progress,
+        CancellationToken ct)
     {
         var inBuf = new byte[BufferSize];
         var outBuf = new byte[cipher.GetOutputSize(BufferSize) + 64];
@@ -217,6 +244,7 @@ public static class AesFileCipher
 
         // Normalise so the same key typed on a different OS/keyboard layout yields the same bytes.
         var passwordBytes = Encoding.UTF8.GetBytes(password.Normalize(NormalizationForm.FormC));
+        // slow on purpose (600k rounds) to make brute force painful
         var material = Rfc2898DeriveBytes.Pbkdf2(
             passwordBytes, header.Salt, header.Iterations, HashAlgorithmName.SHA256,
             header.KeySizeBytes + MacKeyLength);
