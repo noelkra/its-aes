@@ -33,11 +33,10 @@ public static class AesFileCipher
         IProgress<double>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        // only the three real AES sizes allowed
         if (keySizeBits is not (128 or 192 or 256))
             throw new ArgumentOutOfRangeException(nameof(keySizeBits), "AES key size must be 128, 192 or 256 bits.");
 
-        // fresh random salt + nonce every time, so same file + same password never looks the same
+        // neuer Salt und nonce bei jedem verschlüsseln
         var header = new FileHeader(
             mode,
             keySizeBits / 8,
@@ -46,41 +45,41 @@ public static class AesFileCipher
             RandomNumberGenerator.GetBytes(AesModeInfo.NonceLength(mode)));
         var headerBytes = header.ToBytes();
 
-        // write to a temp file first, swap in at the end
+        // erst in eine Temp-Datei schreiben, am Schluss austauschen
         WriteAtomically(inputPath, outputPath, (input, output) =>
         {
-            // password -> two keys (AES + MAC)
+            // Passwort -> zwei Schlüssel (AES + MAC)
             var (encKey, macKey) = DeriveKeys(password, header);
             try
             {
-                // cipher for the chosen mode
+                // Cipher für den gewählten Modus
                 var cipher = CreateCipher(mode, forEncryption: true, encKey, header.Nonce, headerBytes);
-                // HMAC only for non-AEAD modes, GCM/EAX/OCB have their own tag
+                // HMAC nur bei Nicht-AEAD-Modi, GCM/EAX/OCB haben ihren eigenen Tag
                 using var hmac = AesModeInfo.IsAuthenticated(mode)
                     ? null
                     : IncrementalHash.CreateHMAC(HashAlgorithmName.SHA256, macKey);
 
-                // header goes first (and into the HMAC)
+                // Header kommt zuerst (und fliesst in den HMAC)
                 output.Write(headerBytes);
                 hmac?.AppendData(headerBytes);
 
-                // every encrypted chunk: write it out + feed the HMAC
+                // jeder verschlüsselte Block: rausschreiben und in HMAC
                 void Sink(byte[] buf, int len)
                 {
                     output.Write(buf, 0, len);
                     hmac?.AppendData(buf, 0, len);
                 }
 
-                // encrypt chunk by chunk, no need to load the whole file
+                // Block für Block verschlüsseln
                 Pump(cipher, input, input.Length, Sink, 0, 1, progress, cancellationToken);
 
-                // MAC goes at the very end
+                // MAC ganz am Ende anhängen
                 if (hmac is not null)
                     output.Write(hmac.GetHashAndReset());
             }
             finally
             {
-                // wipe keys from memory
+                // Schlüssel aus dem Speicher löschen
                 CryptographicOperations.ZeroMemory(encKey);
                 CryptographicOperations.ZeroMemory(macKey);
             }
@@ -96,29 +95,33 @@ public static class AesFileCipher
     {
         WriteAtomically(inputPath, outputPath, (input, output) =>
         {
+            // Modus/Salt/Nonce aus Header einlesen und prüfen
             var header = FileHeader.Read(input);
             var headerBytes = header.ToBytes();
             long bodyStart = input.Position;
             bool aead = AesModeInfo.IsAuthenticated(header.Mode);
 
+            // zu kurz für Tag/HMAC -> Datei ist abgeschnitten
             long bodyLength = input.Length - bodyStart;
             if (bodyLength < (aead ? AeadTagBits / 8 : HmacLength))
                 throw new InvalidFileFormatException("The file is truncated.");
 
+            // gleiche Schlüssel wie beim Verschlüsseln (gleiches Passwort + Salt aus dem Header)
             var (encKey, macKey) = DeriveKeys(password, header);
             try
             {
                 if (aead)
                 {
-                    // Ciphertext + tag go through the cipher together; the tag is checked in DoFinal.
+                    // Ciphertext + Tag laufen zusammen durch
                     var cipher = CreateCipher(header.Mode, forEncryption: false, encKey, header.Nonce, headerBytes);
                     Pump(cipher, input, bodyLength, (buf, len) => output.Write(buf, 0, len), 0, 1, progress, cancellationToken);
                 }
                 else
                 {
+                    // hinten hängt der HMAC, der gehört nicht zum Ciphertext
                     long cipherLength = bodyLength - HmacLength;
 
-                    // Pass 1: verify the MAC over header + ciphertext before decrypting anything.
+                    // Durchgang 1: erst den MAC über Header + Ciphertext prüfen, noch nichts entschlüsseln
                     using var hmac = IncrementalHash.CreateHMAC(HashAlgorithmName.SHA256, macKey);
                     hmac.AppendData(headerBytes);
                     var buffer = new byte[BufferSize];
@@ -133,23 +136,26 @@ public static class AesFileCipher
                         progress?.Report(0.5 * done / cipherLength);
                     }
 
+                    // berechneten mit gespeichertem MAC vergleichen
                     var storedMac = new byte[HmacLength];
                     input.ReadExactly(storedMac);
                     if (!CryptographicOperations.FixedTimeEquals(hmac.GetHashAndReset(), storedMac))
                         throw new AuthenticationFailedException();
 
-                    // Pass 2: decrypt.
+                    // Durchgang 2: MAC stimmt, entschlüsseln
                     input.Position = bodyStart;
                     var cipher = CreateCipher(header.Mode, forEncryption: false, encKey, header.Nonce, headerBytes);
                     Pump(cipher, input, cipherLength, (buf, len) => output.Write(buf, 0, len), 0.5, 0.5, progress, cancellationToken);
                 }
             }
+            // falscher Tag bei AEAD -> falsches Passwort etc.
             catch (InvalidCipherTextException)
             {
                 throw new AuthenticationFailedException();
             }
             finally
             {
+                // Schlüssel aus dem Speicher löschen
                 CryptographicOperations.ZeroMemory(encKey);
                 CryptographicOperations.ZeroMemory(macKey);
             }
@@ -178,12 +184,14 @@ public static class AesFileCipher
             ct.ThrowIfCancellationRequested();
             int read = input.Read(inBuf, 0, (int)Math.Min(inBuf.Length, length - done));
             if (read <= 0) throw new InvalidFileFormatException("The file is truncated.");
+            // diesen Block ver-/entschlüsseln
             int produced = cipher.ProcessBytes(inBuf, 0, read, outBuf, 0);
             if (produced > 0) sink(outBuf, produced);
             done += read;
             progress?.Report(progressStart + progressSpan * done / Math.Max(1, length));
         }
 
+        // Rest rausholen: letztes Padding bzw. AEAD-Tag
         int last = cipher.DoFinal(outBuf, 0);
         if (last > 0) sink(outBuf, last);
         progress?.Report(progressStart + progressSpan);
@@ -242,14 +250,15 @@ public static class AesFileCipher
         if (string.IsNullOrEmpty(password))
             throw new ArgumentException("The key must not be empty.", nameof(password));
 
-        // Normalise so the same key typed on a different OS/keyboard layout yields the same bytes.
+        // normalisieren
         var passwordBytes = Encoding.UTF8.GetBytes(password.Normalize(NormalizationForm.FormC));
-        // slow on purpose (600k rounds) to make brute force painful
+        // bruteforce verhindern
         var material = Rfc2898DeriveBytes.Pbkdf2(
             passwordBytes, header.Salt, header.Iterations, HashAlgorithmName.SHA256,
             header.KeySizeBytes + MacKeyLength);
         CryptographicOperations.ZeroMemory(passwordBytes);
 
+        // vorderer Teil = AES-Key, Rest = MAC-Key
         var encKey = material[..header.KeySizeBytes];
         var macKey = material[header.KeySizeBytes..];
         CryptographicOperations.ZeroMemory(material);
